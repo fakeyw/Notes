@@ -1,0 +1,84 @@
+﻿关于协程
+现在有几个问题没有搞清楚
+1.协程最终使用到的是单线程还是多线程？
+2.如果是单线程，IO部分由什么控制？
+3.经实验，协程的IO操作确实是并发的(test2)，那么这些并发的操作又由什么处理？
+4.在执行IO操作后，当前线程怎样才会不被阻塞？
+5.貌似在asyncio.open_connection中并不直接执行连接操作，那这个操作由谁执行？
+
+跟据select模式的实现，io的实际读写仍然是主线在做，只是不断用select检查可读写事件
+
+asyncio源码分析
+
+对于某个功能细节的源码分析，需要现在找到一个切入点
+
+跟进了一下open_connection()，想跟到底层处理IO操作的地方
+-> loop.create_connection()
+然后找这个loop的实现
+-> loop = events.get_event_loop()
+-> get_event_loop_policy().get_event_loop()
+-> self.set_event_loop(self.new_event_loop())
+-> _loop_factory()
+跟到了一个_loop_factory = None的地方断了，全项目搜索
+-> _loop_factory = SelectorEventLoop {_WindowsDefaultEventLoopPolicy}
+-> BaseDefaultEventLoopPolicy 又回到get_event_loop()所在的地方
+因为new_event_loop()产生的loop传给了set_event_loop
+查看后发现用这个传入的loop设置了self._local._loop
+即get_event_loop()返回的，有create_connection()方法的对象
+据此，在set_event_loop()中找到抽象类AbstractEventLoop
+<-BaseEventLoop
+->create_connection()
+找到了所需的函数位置
+
+#BTW在其下写了几个print("xxx",threading.currentThread())追踪所属线程
+#然后发现跟用户处于一个线程
+
+继续往下追
+create_connection()
+->_create_connection_transport()
+->_make_socket_transport() 
+在selector_events与proactor_events中实现
+最后分别返回_SelectorSocketTransport，_ProactorSocketTransport
+跟着代表这一对象的transport参数，一直向上返回到open_connection()中
+然后传入StreamWriter()，得到了最外层用户要调用的writer
+
+至此，摸清了参数传递的流程
+(顺便据狗头的说法，协程背后一般要有线程池在运作)
+
+那么顺着writter继续跟，一直跟到与socket交互的地方
+writter定义在streams.py中，跟进write函数
+发现调用了_transport.write()，那么继续跟进_SelectorSocketTransport类
+在selector_events 761行_sock.send()前后加了输出当前线程，与主线程为同一线程
+
+这样的话，只能跟一下reader
+
+跟到了_sock.recv()
+也加了threading.currentThread()，但没什么卵用
+最后加了threading.active_count()测试总线程数才破的案，
+最终结论是asyncio会对每个io操作动态开一个线程处理
+
+mdzz博客真坑人
+
+asyncio的使用特点
+语法基本为同步
+会将要执行的任务函数放入事件循环
+任务函数中用yield from调用库封装好的io函数
+遇到这种特殊的io函数时将不会阻塞当前线程，但会停止当前任务函数，然后开始下一个任务函数
+io结束后的数据会返回到yield处，继续任务函数后面的其他CPU负责的操作
+
+一般来说，对于一个线程池，我们会将任务作为回调函数交给worker
+但协程中，通过yield / yield from的使用，让结果再次返回到原函数的流程中
+继续由原函数与主线程处理结果，而不是由worker所处的线程使用callback做收尾工作
+返回原线程的特点依赖于yield from语法
+这是一个不容易理解的反向通知
+
+（一般来说是不能反向通知的，而是只能正向调用）
+（我能想到的一个方法就是，以某个标记在函数某个地方设分支，将io任务与原函数传入后直接返回）
+（后台处理完io再次调用函数，进入标记之后的分支，即可继续执行）
+（从redis事件循环的阶段标志执行得到的灵感）
+（但是，这样下来仍然是处于子线程中的所以并没有解决问题）
+
+那么，没有这一语法的情况下，协程又该如何实现呢？
+或者说yield from语法是如何实现的呢？
+
+
