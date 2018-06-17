@@ -12,11 +12,13 @@ class a(object):
 		
 	def add(self,k,v):
 		b[0] = 1
-		a = inspect.currentframe().f_back
-		who = inspect.getframeinfo(a)
-		fname = who.filename
-		print(fname,type(fname))
-		target = __import__(fname[:-3])
-		#print(dir(target))
+		#print("Func of inspect:",dir(inspect))
+		frame = inspect.currentframe()
+		e = frame.f_back
+		mod = inspect.getmodule(e)
+		print(dir(mod))
+		
+		c = inspect.getouterframes(frame)
+		print(c)
 		self.dict[k] = v
 		

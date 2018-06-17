@@ -1,5 +1,5 @@
-from testdir.module import a
-from testdir.module import b
+from module import a
+from module import b
 
 def reimported():
 	print("Re-import succeed")
@@ -9,5 +9,7 @@ def imp():
 	if b[0] == 0:
 		print(222)
 		a(b).add('a',1)
+		
+imp()
 
 

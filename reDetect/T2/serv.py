@@ -9,5 +9,7 @@ def imp():
 	if b[0] == 0:
 		print(222)
 		a(b).add('a',1)
+		
+imp()
 
 

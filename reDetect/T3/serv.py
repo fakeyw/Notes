@@ -1,10 +1,12 @@
-from testdir.module import a
-from testdir.module import b
+from module import a
+from module import b
+from module import c
 
 def reimported():
 	print("Re-import succeed")
 	
 def imp():
+	c()
 	print(b[0])
 	if b[0] == 0:
 		print(222)
