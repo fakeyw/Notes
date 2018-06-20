@@ -1,0 +1,6 @@
+watchdog 有一设计模式可借鉴
+
+类似threading的设计
+threading.Thread 可被继承后重写执行函数
+
+watchdog.events.FileSystemEventHandler 也可被继承后重写
